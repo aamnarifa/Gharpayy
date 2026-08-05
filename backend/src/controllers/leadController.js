@@ -1,226 +1,471 @@
-const Lead = require("../models/leadModel");
+const Lead = require("../models/lead");
 
-const VISIT_SCHEDULED = "Visit Scheduled";
-const VALID_STATUSES = ["New", "Contacted", VISIT_SCHEDULED, "Converted", "Lost"];
-const FINAL_STATUSES = ["Converted", "Lost"];
-const ALLOWED_UPDATES = ["name", "phone", "source", "status", "assignedTo", "visitDate"];
-const PHONE_RULE_MESSAGE = "Phone number must be a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9";
-
-// Validation helpers
-const normalizePhone = (phone) => String(phone).replace(/[\s\-\(\)]/g, '');
-
-const validatePhone = (phone) => {
-    return /^[6-9]\d{9}$/.test(normalizePhone(phone));
-};
-
-const validateRequired = (data, fields) => {
-    const missing = fields.filter(field => !data[field] || data[field].toString().trim() === '');
-    if (missing.length > 0) {
-        throw new Error(`Missing required fields: ${missing.join(', ')}`);
-    }
-};
-
-const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
-
-const normalizeVisitDate = (visitDate) => {
-    if (!visitDate) return null;
-
-    const parsedDate = new Date(visitDate);
-    if (Number.isNaN(parsedDate.getTime())) {
-        throw new Error("Visit date is invalid");
-    }
-
-    return parsedDate;
-};
-
-const isBlank = (value) => value === undefined || value === null || value.toString().trim() === "";
-
-const validateLeadIdentity = (updates) => {
-    const { name, phone } = updates;
-
-    if (hasOwn(updates, "name") && isBlank(name)) {
-        throw new Error("Name is required");
-    }
-
-    if (hasOwn(updates, "phone") && isBlank(phone)) {
-        throw new Error("Phone number is required");
-    }
-
-    if (hasOwn(updates, "phone") && phone && !validatePhone(phone)) {
-        throw new Error(PHONE_RULE_MESSAGE);
-    }
-};
-
-const sanitizeText = (value) => value.toString().trim();
-
-const validateAllowedUpdates = (updates = {}) => {
-    if (!updates || typeof updates !== "object" || Array.isArray(updates)) {
-        throw new Error("Updates must be an object");
-    }
-
-    const invalidFields = Object.keys(updates).filter((field) => !ALLOWED_UPDATES.includes(field));
-
-    if (invalidFields.length > 0) {
-        throw new Error(`Invalid update fields: ${invalidFields.join(", ")}`);
-    }
-};
-
-const validateStatus = (status) => {
-    if (status && !VALID_STATUSES.includes(status)) {
-        throw new Error(`Status must be one of: ${VALID_STATUSES.join(", ")}`);
-    }
-};
-
-const validateStatusTransition = (currentStatus, nextStatus) => {
-    if (!nextStatus || currentStatus === nextStatus) return;
-
-    if (FINAL_STATUSES.includes(currentStatus)) {
-        throw new Error(`Cannot change status after lead is ${currentStatus}`);
-    }
-};
-
-const pickAllowedUpdates = (updates) => {
-    return ALLOWED_UPDATES.reduce((picked, field) => {
-        if (hasOwn(updates, field)) {
-            picked[field] = updates[field];
-        }
-        return picked;
-    }, {});
-};
-
-const updateLead = async (id, incomingUpdates = {}) => {
-    const lead = await Lead.findById(id);
-
-    if (!lead) {
-        return null;
-    }
-
-    validateAllowedUpdates(incomingUpdates);
-
-    const updates = pickAllowedUpdates(incomingUpdates);
-    validateLeadIdentity(updates);
-    validateStatus(updates.status);
-
-    if (hasOwn(updates, "name")) {
-        lead.name = sanitizeText(updates.name);
-    }
-
-    if (hasOwn(updates, "phone")) {
-        lead.phone = normalizePhone(updates.phone);
-    }
-
-    if (hasOwn(updates, "source")) {
-        lead.source = updates.source;
-    }
-
-    if (hasOwn(updates, "assignedTo")) {
-        lead.assignedTo = updates.assignedTo || "Unassigned";
-    }
-
-    const statusWasVisitScheduled = lead.status === VISIT_SCHEDULED;
-    const statusRequested = hasOwn(updates, "status");
-    const visitDateRequested = hasOwn(updates, "visitDate");
-    const normalizedVisitDate = visitDateRequested ? normalizeVisitDate(updates.visitDate) : lead.visitDate;
-    const nextStatus = visitDateRequested && normalizedVisitDate ? VISIT_SCHEDULED : (statusRequested ? updates.status : lead.status);
-
-    validateStatusTransition(lead.status, nextStatus);
-
-    if (statusRequested) {
-        lead.status = nextStatus;
-    }
-
-    if (visitDateRequested) {
-        lead.visitDate = normalizedVisitDate;
-        if (lead.visitDate) {
-            lead.status = VISIT_SCHEDULED;
-        }
-    }
-
-    if (statusWasVisitScheduled && statusRequested && lead.status !== VISIT_SCHEDULED) {
-        lead.visitDate = null;
-    }
-
-    if (lead.visitDate) {
-        lead.status = VISIT_SCHEDULED;
-    }
-
-    if (lead.status === VISIT_SCHEDULED && !lead.visitDate) {
-        throw new Error("Visit date is required when status is 'Visit Scheduled'");
-    }
-
-    if (isBlank(lead.name)) {
-        throw new Error("Name is required");
-    }
-
-    if (isBlank(lead.phone)) {
-        throw new Error("Phone number is required");
-    }
-
-    const savedLead = await lead.save({ validateModifiedOnly: true });
-    return Lead.findById(savedLead._id);
-};
+// =======================================
+// GET ALL LEADS
+// =======================================
 
 exports.getLeads = async (req, res) => {
     try {
-        const leads = await Lead.find().sort({ createdAt: -1 });
-        res.status(200).json(leads);
-    } catch (error) {
-        console.error("ERROR:", error.message);
-        res.status(500).json({ error: error.message });
+        const {
+            search,
+            stage,
+            intent,
+            assignedTo,
+            page = 1,
+            limit = 10
+        } = req.query;
+
+        const query = {};
+
+        if (search) {
+            query.$or = [
+                { name: { $regex: search, $options: "i" } },
+                { phone: { $regex: search, $options: "i" } },
+                { preferredArea: { $regex: search, $options: "i" } }
+            ];
+        }
+
+        if (stage) query.stage = stage;
+        if (intent) query.intent = intent;
+        if (assignedTo) query.assignedTcmId = assignedTo;
+
+        const leads = await Lead.find(query)
+            .sort({ createdAt: -1 })
+            .skip((page - 1) * Number(limit))
+            .limit(Number(limit));
+
+        const total = await Lead.countDocuments(query);
+
+        res.status(200).json({
+            success: true,
+            total,
+            page: Number(page),
+            pages: Math.ceil(total / Number(limit)),
+            leads
+        });
+
+    } catch (err) {
+
+        res.status(500).json({
+            success: false,
+            message: err.message
+        });
+
     }
 };
+
+
+// =======================================
+// GET SINGLE LEAD
+// =======================================
+
+exports.getLeadById = async (req, res) => {
+
+    try {
+
+        const lead = await Lead.findById(req.params.id);
+
+        if (!lead) {
+
+            return res.status(404).json({
+                success: false,
+                message: "Lead not found"
+            });
+
+        }
+
+        res.status(200).json({
+            success: true,
+            lead
+        });
+
+    } catch (err) {
+
+        res.status(500).json({
+            success: false,
+            message: err.message
+        });
+
+    }
+
+};
+
+
+// =======================================
+// CREATE LEAD
+// =======================================
 
 exports.createLead = async (req, res) => {
+
     try {
-        const { name, phone, ...otherData } = req.body;
 
-        validateRequired({ name, phone }, ['name', 'phone']);
-        validateLeadIdentity({ name, phone });
+        const lead = await Lead.create(req.body);
 
-        const leadData = {
-            name: sanitizeText(name),
-            phone: normalizePhone(phone),
-            ...otherData,
-            status: "New",
-            assignedTo: otherData.assignedTo || "Unassigned"
-        };
+        res.status(201).json({
 
-        const lead = await Lead.create(leadData);
-        res.status(201).json(lead);
-    } catch (error) {
-        console.error("ERROR:", error.message);
-        res.status(400).json({ error: error.message });
+            success: true,
+            message: "Lead created successfully",
+            lead
+
+        });
+
+    } catch (err) {
+
+        res.status(400).json({
+
+            success: false,
+            message: err.message
+
+        });
+
     }
+
 };
+
+
+// =======================================
+// UPDATE LEAD
+// =======================================
 
 exports.updateLead = async (req, res) => {
+
     try {
-        const { id } = req.params;
-        const lead = await updateLead(id, req.body);
+
+        const lead = await Lead.findById(req.params.id);
 
         if (!lead) {
-            return res.status(404).json({ error: "Lead not found" });
+
+            return res.status(404).json({
+
+                success: false,
+                message: "Lead not found"
+
+            });
+
         }
 
-        res.status(200).json(lead);
-    } catch (error) {
-        console.error("ERROR:", error.message);
-        res.status(400).json({ error: error.message });
+        Object.assign(lead, req.body);
+
+        const updatedLead = await lead.save();
+
+        res.status(200).json({
+
+            success: true,
+            message: "Lead updated successfully",
+            lead: updatedLead
+
+        });
+
+    } catch (err) {
+
+        res.status(400).json({
+
+            success: false,
+            message: err.message
+
+        });
+
     }
+
 };
 
+
+// =======================================
+// DELETE LEAD
+// =======================================
+
 exports.deleteLead = async (req, res) => {
+
     try {
-        const { id } = req.params;
-        const lead = await Lead.findByIdAndDelete(id);
+
+        const lead = await Lead.findById(req.params.id);
 
         if (!lead) {
-            return res.status(404).json({ error: "Lead not found" });
+
+            return res.status(404).json({
+
+                success: false,
+                message: "Lead not found"
+
+            });
+
         }
 
-        res.status(200).json({ message: "Lead deleted", lead });
-    } catch (error) {
-        console.error("ERROR:", error.message);
-        res.status(400).json({ error: error.message });
+        await lead.deleteOne();
+
+        res.status(200).json({
+
+            success: true,
+            message: "Lead deleted successfully"
+
+        });
+
+    } catch (err) {
+
+        res.status(500).json({
+
+            success: false,
+            message: err.message
+
+        });
+
     }
+
+};
+
+
+// =======================================
+// UPDATE STAGE
+// =======================================
+
+exports.updateStage = async (req, res) => {
+
+    try {
+
+        const { stage } = req.body;
+
+        if (!stage) {
+
+            return res.status(400).json({
+
+                success: false,
+                message: "Stage is required"
+
+            });
+
+        }
+
+        const lead = await Lead.findById(req.params.id);
+
+        if (!lead) {
+
+            return res.status(404).json({
+
+                success: false,
+                message: "Lead not found"
+
+            });
+
+        }
+
+        lead.stage = stage;
+        lead.status = stage;
+
+        await lead.save();
+
+        res.status(200).json({
+
+            success: true,
+            message: "Stage updated successfully",
+            lead
+
+        });
+
+    } catch (err) {
+
+        res.status(500).json({
+
+            success: false,
+            message: err.message
+
+        });
+
+    }
+
+};
+
+
+// =======================================
+// ASSIGN LEAD
+// =======================================
+
+exports.assignLead = async (req, res) => {
+
+    try {
+
+        const { assignedTcmId } = req.body;
+
+        const lead = await Lead.findById(req.params.id);
+
+        if (!lead) {
+
+            return res.status(404).json({
+
+                success: false,
+                message: "Lead not found"
+
+            });
+
+        }
+
+        lead.assignedTcmId = assignedTcmId;
+
+        await lead.save();
+
+        res.status(200).json({
+
+            success: true,
+            message: "Lead assigned successfully",
+            lead
+
+        });
+
+    } catch (err) {
+
+        res.status(500).json({
+
+            success: false,
+            message: err.message
+
+        });
+
+    }
+
+};
+
+
+// =======================================
+// UPDATE INTENT
+// =======================================
+
+exports.updateIntent = async (req, res) => {
+
+    try {
+
+        const { intent } = req.body;
+
+        const lead = await Lead.findById(req.params.id);
+
+        if (!lead) {
+
+            return res.status(404).json({
+
+                success: false,
+                message: "Lead not found"
+
+            });
+
+        }
+
+        lead.intent = intent;
+
+        await lead.save();
+
+        res.status(200).json({
+
+            success: true,
+            message: "Intent updated successfully",
+            lead
+
+        });
+
+    } catch (err) {
+
+        res.status(500).json({
+
+            success: false,
+            message: err.message
+
+        });
+
+    }
+
+};
+
+
+// =======================================
+// UPDATE FOLLOWUP
+// =======================================
+
+exports.updateFollowUp = async (req, res) => {
+
+    try {
+
+        const { nextFollowUpAt } = req.body;
+
+        const lead = await Lead.findById(req.params.id);
+
+        if (!lead) {
+
+            return res.status(404).json({
+
+                success: false,
+                message: "Lead not found"
+
+            });
+
+        }
+
+        lead.nextFollowUpAt = nextFollowUpAt;
+
+        await lead.save();
+
+        res.status(200).json({
+
+            success: true,
+            message: "Follow-up updated successfully",
+            lead
+
+        });
+
+    } catch (err) {
+
+        res.status(500).json({
+
+            success: false,
+            message: err.message
+
+        });
+
+    }
+
+};
+
+
+// =======================================
+// UPDATE TAGS
+// =======================================
+
+exports.updateTags = async (req, res) => {
+
+    try {
+
+        const { tags } = req.body;
+
+        const lead = await Lead.findById(req.params.id);
+
+        if (!lead) {
+
+            return res.status(404).json({
+
+                success: false,
+                message: "Lead not found"
+
+            });
+
+        }
+
+        lead.tags = tags;
+
+        await lead.save();
+
+        res.status(200).json({
+
+            success: true,
+            message: "Tags updated successfully",
+            lead
+
+        });
+
+    } catch (err) {
+
+        res.status(500).json({
+
+            success: false,
+            message: err.message
+
+        });
+
+    }
+
 };
