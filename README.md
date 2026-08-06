@@ -1,4 +1,4 @@
-# 🏠 GharPayy PG Booking CRM
+# 🏠PG Booking CRM
 
 A full-stack **PG Booking Customer Relationship Management (CRM)** system built to streamline the management of PG room inquiries, lead pipelines, property tours, bookings, agent activities, and sales analytics.
 
