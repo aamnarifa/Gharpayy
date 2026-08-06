@@ -1,12 +1,17 @@
 import axios from "axios";
 
+// Centralized API Base URL configuration
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  "https://gharpayy-backend-gmk3.onrender.com/api";
+
 // Centralized Axios Instance
 const api = axios.create({
-  baseURL: "http://localhost:5000/api",
+  baseURL: API_BASE_URL,
   headers: {
     "Content-Type": "application/json",
   },
-  timeout: 10000,
+  timeout: 15000,
 });
 
 // Request Interceptor: Attach Auth Token if present
@@ -39,7 +44,7 @@ api.interceptors.response.use(
         `Server error (${error.response.status})`;
     } else if (error.request) {
       // Request was made but no response received
-      errorMessage = "Unable to connect to server. Please check if the backend is running at http://localhost:5000";
+      errorMessage = `Unable to connect to server. Please check your internet connection or backend at ${API_BASE_URL}`;
     } else {
       errorMessage = error.message;
     }
