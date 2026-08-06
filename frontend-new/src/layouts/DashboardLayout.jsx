@@ -108,7 +108,12 @@ export const DashboardLayout = ({ children, onOpenAddLeadModal }) => {
         </div>
 
         {/* Navigation Items with Airy Padding */}
-        <nav className="flex-1 p-5 space-y-3 overflow-y-auto">
+        <nav className="flex-1 p-5 space-y-2 overflow-y-auto">
+          {!collapsed && (
+            <div className="px-3 pt-2 pb-2 text-[11px] font-bold uppercase tracking-[0.25em] text-indigo-400 font-heading">
+              Main Menu
+            </div>
+          )}
           {navigation.map((item) => {
             const active = isActive(item.href);
             const Icon = item.icon;

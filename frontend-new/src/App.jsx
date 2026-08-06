@@ -1,33 +1,67 @@
 import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ToastProvider } from "./context/ToastContext";
 
 // Pages
 import Login from "./pages/Login";
+import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import Leads from "./pages/Leads";
 import LeadDetails from "./pages/LeadDetails";
 import Pipeline from "./pages/Pipeline";
-import Analytics from "./pages/Analytics";
+import Tours from "./pages/Tours";
 import Activities from "./pages/Activities";
 import Bookings from "./pages/Bookings";
+import Analytics from "./pages/Analytics";
 import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 
-// Protected Route Guard
+// Protected Route
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated } = useAuth();
+
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
+
+  return children;
+};
+
+// Public Route (redirects authenticated users to dashboard)
+const PublicRoute = ({ children }) => {
+  const { isAuthenticated } = useAuth();
+
+  if (isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   return children;
 };
 
 function AppRoutes() {
   return (
     <Routes>
-      <Route path="/login" element={<Login />} />
+      {/* Public Routes */}
+      <Route
+        path="/login"
+        element={
+          <PublicRoute>
+            <Login />
+          </PublicRoute>
+        }
+      />
+      <Route
+        path="/register"
+        element={
+          <PublicRoute>
+            <Register />
+          </PublicRoute>
+        }
+      />
+
+      {/* Protected Routes */}
 
       <Route
         path="/"
@@ -37,6 +71,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+
       <Route
         path="/dashboard"
         element={
@@ -45,6 +80,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+
       <Route
         path="/leads"
         element={
@@ -53,6 +89,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+
       <Route
         path="/leads/:id"
         element={
@@ -61,6 +98,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+
       <Route
         path="/pipeline"
         element={
@@ -69,22 +107,16 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+
       <Route
         path="/tours"
         element={
           <ProtectedRoute>
-            <Pipeline />
+            <Tours />
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/analytics"
-        element={
-          <ProtectedRoute>
-            <Analytics />
-          </ProtectedRoute>
-        }
-      />
+
       <Route
         path="/activities"
         element={
@@ -93,6 +125,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+
       <Route
         path="/bookings"
         element={
@@ -101,6 +134,16 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+
+      <Route
+        path="/analytics"
+        element={
+          <ProtectedRoute>
+            <Analytics />
+          </ProtectedRoute>
+        }
+      />
+
       <Route
         path="/profile"
         element={
@@ -110,6 +153,7 @@ function AppRoutes() {
         }
       />
 
+      {/* 404 */}
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
