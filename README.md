@@ -14,21 +14,7 @@ The application provides a modern, responsive interface with secure JWT authenti
 ### Backend API
 https://gharpayy-backend-gmk3.onrender.com
 
----
 
-# 📸 Screenshots
-
-> Add screenshots of:
-
-- Login Page
-- Dashboard
-- Leads Management
-- Pipeline Board
-- Bookings
-- Activities
-- Analytics
-
----
 
 # ✨ Features
 
